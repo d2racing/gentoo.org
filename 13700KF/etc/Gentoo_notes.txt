@@ -1,0 +1,393 @@
+
+# ---- Connection NAS ----
+
+# mkdir -p /mnt/NAS
+# mount -t cifs //192.168.2.250/LOGICIELS /mnt/NAS -o username=XXXX,password=XXXX,rw,iocharset=utf8,uid=1000,gid=1000
+
+
+==== Étape 1 ====
+# ---- SSD ----
+# GPT DISK
+
+#cfdisk /dev/sda
+
+/dev/sda1 type VFAT -F 32 2 Go
+/dev/sda2 SWAP            32 Go
+/dev/sda3 BTRFS           RESTE
+
+
+# ---- Partitions ----
+/dev/sda1   /efi        vfat    umask=0077                            0 2
+/dev/sda2   none        swap   sw                                     0 0
+/dev/sda3   /           btrfs  defaults,noatime,subvol=@              0 1
+/dev/sda3   /home       btrfs  defaults,noatime,subvol=@home          0 1
+
+
+==== Étape 2 ====
+
+# ---- Système de fichiers ----
+# mkdir --parents /mnt/gentoo
+
+# mkfs.vfat -F 32 /dev/sda1
+
+# mkswap /dev/sda2
+# swapon /dev/sda2
+
+# mkfs.btrfs /dev/sda3
+# mount /dev/sda3 /mnt/gentoo
+# cd /mnt/gentoo
+# btrfs subvolume create @
+# btrfs subvolume create @home
+# cd /
+# umount /mnt/gentoo
+
+# mount /dev/sda3 /mnt/gentoo -o subvol=@
+# mkdir -p /mnt/gentoo/home
+# mkdir -p /mnt/gentoo/efi
+# mount /dev/sda3 /mnt/gentoo/home -o subvol=@home
+
+
+==== Étape 3 Installation du stage ====
+
+# Le télécharger et le déposer dans /mnt/gentoo
+
+# tar xpvf stage3-*.tar.xz --xattrs-include='*.*' --numeric-owner -C /mnt/gentoo
+
+# cp --dereference /etc/resolv.conf /mnt/gentoo/etc/
+
+==== Création du make.conf ====
+
+Prendre le make.conf de mon setup
+
+# nano /mnt/gentoo/etc/portage/make.conf
+
+# mount --types proc /proc /mnt/gentoo/proc
+# mount --rbind /sys /mnt/gentoo/sys
+# mount --make-rslave /mnt/gentoo/sys
+# mount --rbind /dev /mnt/gentoo/dev
+# mount --make-rslave /mnt/gentoo/dev
+# mount --bind /run /mnt/gentoo/run
+# mount --make-slave /mnt/gentoo/run
+
+==== CHROOT ====
+
+# chroot /mnt/gentoo /bin/bash
+# source /etc/profile
+# export PS1="(chroot) ${PS1}"
+
+==== Mount EFI parition ====
+# mount /dev/sda1 /efi
+
+
+# time emerge --sync
+
+# eselect profile list
+# eselect profile set 8
+
+# mkdir -p /var/tmp/portage
+# emerge --ask app-misc/resolve-march-native
+# resolve-march-native
+
+-march=alderlake -mabm -mno-kl -mno-pconfig -mno-sgx -mno-widekl -mshstk --param=l1-cache-line-size=64 --param=l1-cache-size=32 --param=l2-cache-size=30720
+
+Changer -=march=native pour dans cet exemple : -march=alderlake
+
+
+# cat /etc/locale.gen
+fr_CA.UTF-8       UTF-8  # Canadian French (Canada)
+
+
+# eselect locale list
+# eselect locale set 349 ou 350
+
+# locale-gen
+
+# Configuration Timezone
+# ln -sf ../usr/share/zoneinfo/America/Montreal /etc/localtime
+
+# env-update && source /etc/profile && export PS1="(chroot) ${PS1}"
+
+# emerge -1av app-portage/cpuid2cpuflags
+# cpuid2cpuflags
+# echo "*/* $(cpuid2cpuflags)" > /etc/portage/package.use/00cpu-flags
+
+# nano /etc/portage/package.use/00video_cards
+*/* VIDEO_CARDS: amdgpu radeonsi
+
+Ou
+*/* VIDEO_CARDS: -* nvidia
+
+# mkdir /etc/portage/package.license
+
+# nano etc/portage/package.license/kernel
+sys-kernel/linux-firmware linux-fw-redistributable
+
+
+##### MAJ  du système pour la première fois #####
+
+# emerge --ask --verbose --update --deep --changed-use @world
+# emerge --ask --pretend --depclean
+# emerge --ask --depclean
+
+# ==== En cas de plantage ====
+* Messages for package sys-devel/gcc-14.3.1_p20250801:
+
+ * Different values of l1-cache-size detected!
+ * GCC will fail to bootstrap when comparing files with these flags.
+ * This CPU is likely big.little/hybrid hardware with power/efficiency cores.
+ * Please install app-misc/resolve-march-native and run 'resolve-march-native'
+ * to find a safe value of CFLAGS for this CPU. Note that this may vary
+ * depending on the core it ran on. taskset can be used to fix the cores used.
+ * ERROR: sys-devel/gcc-14.3.1_p20250801::gentoo failed (configure phase):
+ *   Varying l1-cache-size found, aborting (bug #915389, gcc PR#111768)
+ * Call stack:
+ *     ebuild.sh, line  143:  Called src_configure
+ *   environment, line 3366:  Called toolchain_src_configure
+ *   environment, line 4737:  Called gcc_do_filter_flags
+ *   environment, line 1836:  Called die
+ * The specific snippet of code:
+ *               die "Varying l1-cache-size found, aborting (bug #915389, gcc PR#111768)";
+ * If you need support, post the output of `emerge --info '=sys-devel/gcc-14.3.1_p20250801::gentoo'`,
+ * the complete build log and the output of `emerge -pqv '=sys-devel/gcc-14.3.1_p20250801::gentoo'`.
+ * The complete build log is located at '/var/tmp/portage/portage/sys-devel/gcc-14.3.1_p20250801/temp/build.log'.
+ * The ebuild environment file is located at '/var/tmp/portage/portage/sys-devel/gcc-14.3.1_p20250801/temp/environment'.
+ * Working directory: '/var/tmp/portage/portage/sys-devel/gcc-14.3.1_p20250801/work/gcc-14-20250801'
+ * S: '/var/tmp/portage/portage/sys-devel/gcc-14.3.1_p20250801/work/gcc-14-20250801'
+
+real    0m13.396s
+user    0m7.326s
+sys     0m7.002s
+
+
+
+# cat /etc/portage/package.use/installkernel
+sys-kernel/installkernel grub dracut
+
+# emerge --ask sys-firmware/sof-firmware
+# emerge --ask sys-kernel/linux-firmware gentoo-kernel-bin installkernel
+
+# emerge --depclean
+# emerge --ask @module-rebuild
+
+
+# nano /etc/fstab
+
+/dev/sda1   /efi        vfat    umask=0077                            0 2
+/dev/sda2   none        swap   sw                                     0 0
+/dev/sda3   /           btrfs  defaults,noatime,subvol=@              0 1
+/dev/sda3   /home       btrfs  defaults,noatime,subvol=@home          0 1
+
+
+# nano /etc/hostname
+gentoo7520u
+
+# hostnamectl hostname gentoo7520u    $$$$$
+
+
+# ip address
+# ip link
+
+### Prendre en note le nom de l'interface
+
+# nano /etc/systemd/network/10-eno1.network
+[Match]
+Name=eno1
+
+[Network]
+DHCP=yes
+DNS=192.168.2.1
+DNS=207.164.234.129
+
+# nano /etc/hosts
+127.0.0.1       localhost
+::1             localhost
+
+127.0.1.1       gentoo13700kf.localdomain gentoo13700kf
+
+# ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+# systemctl enable systemd-networkd systemd-resolved
+
+# systemctl start systemd-networkd systemd-resolved
+
+# resolvectl status
+
+# ---- Mot de passe root ----
+# passwd
+
+# systemd-machine-id-setup
+# systemd-firstboot --prompt
+# systemctl preset-all --preset-mode=enable-only
+# systemctl preset-all
+
+# emerge --ask sys-apps/mlocate app-shells/bash-completion net-misc/chrony
+# systemctl enable chronyd.service
+# systemctl enable systemd-timesyncd.service
+
+# emerge -av sys-fs/dosfstools sys-fs/btrfs-progs sys-block/io-scheduler-udev-rules
+
+# emerge --ask --verbose sys-boot/grub
+
+# echo 'GRUB_PLATFORMS="efi-64"' >> /etc/portage/make.conf
+
+# grub-install --efi-directory=/efi
+
+# grub-mkconfig -o /boot/grub/grub.cfg
+
+# exit
+# cd
+# umount -l /mnt/gentoo/dev{/shm,/pts,}
+# umount -R /mnt/gentoo
+# reboot
+
+
+# ---- Création de sylvain ----
+
+# useradd -m -G users,wheel sylvain
+# passwd sylvain
+
+
+# ---- Varia ----
+# emerge -av gentoolkit eix mlocate
+# updatedb && eix-update && eclean-disteclean-pkg
+
+
+# ---- Installation de KDE ----
+
+# emerge --ask kde-plasma/plasma-meta kde-apps/kde-apps-meta kde-plasma/kdeplasma-addons
+# systemctl enable sddm.service
+# systemctl start sddm.service
+# usermod -a -G video sddm
+
+
+
+
+#---- Google Chrome ----
+# time emerge -av google-chrome
+
+#---- 1Password ----
+# emerge --ask sys-apps/flatpak
+# flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+# flatpak update
+# flatpak install https://downloads.1password.com/linux/flatpak/1Password.flatpakref
+
+# ---- Anydesk ----
+# flatpak install flathub com.anydesk.Anydesk
+
+# ---- HEIC et HEVC supports
+# time emerge --ask media-libs/libheif media-libs/libde265
+# echo "kde-frameworks/kimageformats heif" >> /etc/portage/package.use/kimageformats
+# time emerge --ask --newuse kde-frameworks/kimageformats
+# time emerge --ask kde-apps/thumbnailers
+
+# ---- Signal ----
+
+# flatpak install flathub org.signal.Signal
+
+
+# ---- Flatpak update
+
+# flatpak update
+# flatpak update --appstream && flatpak update --list
+
+
+
+
+# ---- Configuration de KDE ----
+# time emerge -av avahi nss-mdns
+# systemctl enable avahi-daemon.service
+# systemctl start avahi-daemon.service
+
+
+# ---- Configuration du son sous KDE ----
+
+# emerge --ask media-video/pipewire media-video/wireplumber
+# emerge --ask media-sound/alsa-utils
+
+# Démarrer en user :
+$ systemctl --user enable --now pipewire pipewire-pulse wireplumber
+
+# --- Démarrer avec 0 et 1 pour déterminer la position de votre carte de son dans ALSA
+$ alsamixer -c 0
+$ alsamixer -c 1
+
+$ speaker-test -c 2 -D hw:0,0
+$ speaker-test -c 2 -D hw:1,0
+
+Press F6 to select your sound card (choose ALC257 / Analog)
+Make sure Master and PCM are not muted (MM → OO to unmute)
+Raise volumes if needed
+
+# systemctl --user enable --now pipewire pipewire-pulse wireplumber
+
+
+
+
+
+
+
+# mkdir -p /mnt/NAS
+# mount -t cifs //192.168.2.250/LOGICIELS /mnt/NAS -o username=XXXX,password=XXXX,rw,iocharset=utf8,uid=1000,gid=1000
+
+# ---- CHROOT ----
+# mkdir -p /mnt/gentoo
+# mkdir -p /mnt/gentoo/home
+# mount /dev/sda3 /mnt/gentoo -o subvol=@
+# mount /dev/sda3 /mnt/gentoo/home -o subvol=@home
+
+# mount --types proc /proc /mnt/gentoo/proc
+# mount --rbind /sys /mnt/gentoo/sys
+# mount --make-rslave /mnt/gentoo/sys
+# mount --rbind /dev /mnt/gentoo/dev
+# mount --make-rslave /mnt/gentoo/dev
+# mount --bind /run /mnt/gentoo/run
+# mount --make-slave /mnt/gentoo/run
+# chroot /mnt/gentoo /bin/bash
+# env-update && source /etc/profile && export PS1="(chroot) ${PS1}"
+# mkswap /dev/sda2
+# swapon /dev/sda2
+# mount /dev/sda1 /efi
+
+# exit
+# cd
+# umount -l /mnt/gentoo/dev{/shm,/pts,}
+# umount -R /mnt/gentoo /mnt/nas
+# reboot
+
+
+# nano /etc/portage/make.conf
+-networkmanager dans USE =
+
+# emerge -auDNv @world
+
+
+# systemctl status  NetworkManager
+# systemctl stop    NetworkManager
+# systemctl disable NetworkManager
+# systemctl status  dhcpcd
+# systemctl stop    dhcpcd
+# systemctl disable dhcpcd
+
+# ip address
+# ip link
+
+### Prendre en note le nom de l'interface
+
+# nano /etc/systemd/network/10-eno1.network
+[Match]
+Name=eno1
+
+[Network]
+DHCP=yes
+DNS=192.168.2.1
+DNS=207.164.234.129
+
+# nano /etc/hosts
+127.0.0.1       localhost
+::1             localhost
+
+127.0.1.1       gentoo13700kf.localdomain gentoo13700kf
+# ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+# systemctl enable systemd-networkd systemd-resolved
+# systemctl start systemd-networkd systemd-resolved
+# resolvectl status
